@@ -170,30 +170,38 @@ class DLUTRSSPlugin(Star):
             response.raise_for_status()
 
         soup = BeautifulSoup(response.text, "html.parser")
-        date_pattern = re.compile(r"(\d{4})年(\d{1,2})月(\d{1,2})日")
         id_pattern = re.compile(r"/(\d+)\.htm$")
 
         notices: list[dict[str, str]] = []
         seen_links: set[str] = set()
 
-        for link in soup.select("a[href]"):
+        # 优先按页面条目容器解析，避免把标题中的日期误当发布日期
+        for row in soup.select("div.l_text-wrapper_3"):
+            link = row.select_one("a[href*='/info/']")
+            if not link:
+                continue
+
             href = (link.get("href") or "").strip()
             title = link.get_text(" ", strip=True)
-            if not href or not title or "/info/" not in href:
+            if not href or not title:
                 continue
 
             abs_link = urljoin(base_url, href)
             if abs_link in seen_links:
                 continue
 
-            context_text = " ".join(
-                t for t in [link.parent.get_text(" ", strip=True), self._collect_sibling_text(link)] if t
-            )
-            m = date_pattern.search(context_text)
-            if not m:
+            date_text_raw = ""
+            date_span = row.select_one("span.l_text_22")
+            if date_span:
+                date_text_raw = date_span.get_text(" ", strip=True)
+
+            date_text = self._extract_date_iso(date_text_raw)
+            if not date_text:
+                # 兜底：在同一条目文本中取最后一个日期，通常是右侧发布日期
+                date_text = self._extract_date_iso(row.get_text(" ", strip=True), pick_last=True)
+            if not date_text:
                 continue
 
-            date_text = f"{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
             id_match = id_pattern.search(abs_link)
             notice_id = id_match.group(1) if id_match else abs_link
 
@@ -208,8 +216,50 @@ class DLUTRSSPlugin(Star):
             )
             seen_links.add(abs_link)
 
+        # 兜底：若页面结构变化导致条目容器失效，再回退到全页面链接扫描
+        if not notices:
+            for link in soup.select("a[href]"):
+                href = (link.get("href") or "").strip()
+                title = link.get_text(" ", strip=True)
+                if not href or not title or "/info/" not in href:
+                    continue
+
+                abs_link = urljoin(base_url, href)
+                if abs_link in seen_links:
+                    continue
+
+                context_text = " ".join(
+                    t for t in [link.parent.get_text(" ", strip=True), self._collect_sibling_text(link)] if t
+                )
+                date_text = self._extract_date_iso(context_text, pick_last=True)
+                if not date_text:
+                    continue
+
+                id_match = id_pattern.search(abs_link)
+                notice_id = id_match.group(1) if id_match else abs_link
+
+                notices.append(
+                    {
+                        "id": notice_id,
+                        "title": title,
+                        "link": abs_link,
+                        "date": date_text,
+                        "pub_date": self._to_rfc2822(date_text),
+                    }
+                )
+                seen_links.add(abs_link)
+
         notices.sort(key=lambda x: x["date"], reverse=True)
         return notices[:max_items]
+
+    def _extract_date_iso(self, text: str, pick_last: bool = False) -> str:
+        if not text:
+            return ""
+        matches = list(re.finditer(r"(\d{4})年(\d{1,2})月(\d{1,2})日", text))
+        if not matches:
+            return ""
+        m = matches[-1] if pick_last else matches[0]
+        return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
 
     def _collect_sibling_text(self, link) -> str:
         texts = []
