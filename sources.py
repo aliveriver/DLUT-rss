@@ -137,6 +137,42 @@ SOURCES: list[SourceConfig] = [
         "parser": parse_h2_child,
         "category": "ssdut",
     },
+    {
+        "key": "ic_bksjx",
+        "name": "集成电路学院-本科生教学",
+        "url": "https://ic.dlut.edu.cn/rcpy/bkspy/bksjx.htm",
+        "selector": ".ny_newsListRow a",
+        "parser": parse_text_content,
+        "category": "ic",
+        "base_url": "https://ic.dlut.edu.cn/",
+    },
+    {
+        "key": "ic_bksgl",
+        "name": "集成电路学院-本科生管理",
+        "url": "https://ic.dlut.edu.cn/rcpy/bkspy/bksgl.htm",
+        "selector": ".ny_newsListRow a",
+        "parser": parse_text_content,
+        "category": "ic",
+        "base_url": "https://ic.dlut.edu.cn/",
+    },
+    {
+        "key": "ic_yjsjx",
+        "name": "集成电路学院-研究生教学",
+        "url": "https://ic.dlut.edu.cn/rcpy/yjspy/yjsjx.htm",
+        "selector": ".ny_newsListRow a",
+        "parser": parse_text_content,
+        "category": "ic",
+        "base_url": "https://ic.dlut.edu.cn/",
+    },
+    {
+        "key": "ic_yjsgl",
+        "name": "集成电路学院-研究生管理",
+        "url": "https://ic.dlut.edu.cn/rcpy/yjspy/yjsgl.htm",
+        "selector": ".ny_newsListRow a",
+        "parser": parse_text_content,
+        "category": "ic",
+        "base_url": "https://ic.dlut.edu.cn/",
+    },
 ]
 
 SOURCES_BY_KEY = {source["key"]: source for source in SOURCES}
