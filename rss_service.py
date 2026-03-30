@@ -51,6 +51,8 @@ class DLUTRSSService:
         selected_sources = [
             source for source in SOURCES if source_keys is None or source["key"] in source_keys
         ]
+        if source_keys is not None and not selected_sources:
+            logger.warning(f"[DLUT RSS] 未找到匹配来源 source_keys={sorted(source_keys)}")
 
         async with httpx.AsyncClient(
             timeout=timeout_sec,
@@ -117,45 +119,57 @@ class DLUTRSSService:
     async def _fetch_source_notices(
         self, client: httpx.AsyncClient, source: SourceConfig
     ) -> list[Notice]:
-        response = await client.get(source["url"], headers=self._request_headers(source))
-        response.raise_for_status()
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        tags = soup.select(source["selector"])
-        if not tags:
-            logger.warning(f"[DLUT RSS] 选择器未命中 {source['key']} {source['url']} selector={source['selector']}")
+        page_urls = [source["url"], *source.get("extra_urls", [])]
         notices: list[Notice] = []
+        seen_links: set[str] = set()
 
-        for tag in tags:
-            if not isinstance(tag, Tag):
+        for page_url in page_urls:
+            response = await client.get(page_url, headers=self._request_headers(source, page_url))
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.text, "html.parser")
+            tags = soup.select(source["selector"])
+            if not tags:
+                logger.warning(
+                    f"[DLUT RSS] 选择器未命中 {source['key']} {page_url} selector={source['selector']}"
+                )
                 continue
 
-            href = (tag.get("href") or "").strip()
-            if not href:
-                continue
+            for tag in tags:
+                if not isinstance(tag, Tag):
+                    continue
 
-            title = source["parser"](tag).strip()
-            if not title:
-                continue
+                href = (tag.get("href") or "").strip()
+                if not href:
+                    continue
 
-            base_url = source.get("base_url") or source["url"]
-            full_url = urljoin(base_url, href)
-            published_at = self._extract_published_at(tag)
+                title = source["parser"](tag).strip()
+                if not title:
+                    continue
 
-            notices.append(
-                {
-                    "id": self._make_notice_id(source["key"], full_url),
-                    "title": title,
-                    "link": full_url,
-                    "source": source["name"],
-                    "source_key": source["key"],
-                    "category": source["category"],
-                    "date": published_at.strftime("%Y-%m-%d"),
-                    "pub_date": published_at.strftime("%a, %d %b %Y %H:%M:%S +0800"),
-                    "published_at": published_at,
-                }
-            )
+                base_url = source.get("base_url") or page_url
+                full_url = urljoin(base_url, href)
+                if full_url in seen_links:
+                    continue
 
+                published_at = self._extract_published_at(tag)
+                notices.append(
+                    {
+                        "id": self._make_notice_id(source["key"], full_url),
+                        "title": title,
+                        "link": full_url,
+                        "source": source["name"],
+                        "source_key": source["key"],
+                        "category": source["category"],
+                        "date": published_at.strftime("%Y-%m-%d"),
+                        "pub_date": published_at.strftime("%a, %d %b %Y %H:%M:%S +0800"),
+                        "published_at": published_at,
+                    }
+                )
+                seen_links.add(full_url)
+
+        if not notices:
+            logger.warning(f"[DLUT RSS] 来源无有效条目 {source['key']} urls={page_urls}")
         return notices
 
     def _extract_published_at(self, tag: Tag) -> datetime:
@@ -219,9 +233,9 @@ class DLUTRSSService:
         digest = sha1(f"{source_key}|{link}".encode("utf-8")).hexdigest()
         return f"{source_key}:{digest}"
 
-    def _request_headers(self, source: SourceConfig) -> dict[str, str]:
+    def _request_headers(self, source: SourceConfig, request_url: str | None = None) -> dict[str, str]:
         headers = dict(DEFAULT_HEADERS)
-        headers["Referer"] = source.get("base_url") or source["url"]
+        headers["Referer"] = source.get("base_url") or request_url or source["url"]
         return headers
 
     def _cfg_int(self, key: str, default: int) -> int:
@@ -233,5 +247,6 @@ class DLUTRSSService:
     def _cfg_str(self, key: str, default: str) -> str:
         value = self.config.get(key, default)
         return str(value) if value is not None else default
+
 
 

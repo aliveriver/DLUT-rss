@@ -40,7 +40,7 @@ from sources import SourceConfig, format_source_lines, resolve_source
 from subscription_store import SubscriptionStore
 
 
-@register("astrbot_plugin_dlut_rss", "aliveriver", "抓取 DLUT 多站点通知并推送到订阅会话", "1.2.3")
+@register("astrbot_plugin_dlut_rss", "aliveriver", "抓取 DLUT 多站点通知并推送到订阅会话", "1.2.4")
 class DLUTRSSPlugin(Star):
     def __init__(self, context: Context, config: dict[str, Any] | None = None):
         super().__init__(context)
@@ -321,6 +321,7 @@ class DLUTRSSPlugin(Star):
                 "- 首次运行只建立基线，不会推送历史通知",
             ]
         )
+
 
 
 
