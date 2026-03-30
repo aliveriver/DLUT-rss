@@ -52,7 +52,7 @@ class DLUTRSSService:
             source for source in SOURCES if source_keys is None or source["key"] in source_keys
         ]
         if source_keys is not None and not selected_sources:
-            logger.warning(f"[DLUT RSS] 未找到匹配来源 source_keys={sorted(source_keys)}")
+            logger.info(f"[DLUT RSS] 未找到匹配来源 source_keys={sorted(source_keys)}")
 
         async with httpx.AsyncClient(
             timeout=timeout_sec,
@@ -67,7 +67,7 @@ class DLUTRSSService:
         notices: list[Notice] = []
         for source, result in zip(selected_sources, results):
             if isinstance(result, Exception):
-                logger.warning(f"[DLUT RSS] 抓取来源失败 {source['key']} {source['url']}: {result}")
+                logger.info(f"[DLUT RSS] 抓取来源失败 {source['key']} {source['url']}: {result}")
                 continue
             notices.extend(result)
 
@@ -130,7 +130,7 @@ class DLUTRSSService:
             soup = BeautifulSoup(response.text, "html.parser")
             tags = soup.select(source["selector"])
             if not tags:
-                logger.warning(
+                logger.info(
                     f"[DLUT RSS] 选择器未命中 {source['key']} {page_url} selector={source['selector']}"
                 )
                 continue
@@ -169,7 +169,7 @@ class DLUTRSSService:
                 seen_links.add(full_url)
 
         if not notices:
-            logger.warning(f"[DLUT RSS] 来源无有效条目 {source['key']} urls={page_urls}")
+            logger.info(f"[DLUT RSS] 来源无有效条目 {source['key']} urls={page_urls}")
         return notices
 
     def _extract_published_at(self, tag: Tag) -> datetime:
@@ -247,6 +247,7 @@ class DLUTRSSService:
     def _cfg_str(self, key: str, default: str) -> str:
         value = self.config.get(key, default)
         return str(value) if value is not None else default
+
 
 
 

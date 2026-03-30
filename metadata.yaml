@@ -1,9 +1,12 @@
 ﻿name: astrbot_plugin_dlut_rss
 display_name: DLUT 多源通知 RSS 推送
 desc: 聚合抓取大连理工大学开发区校区多个通知站点，生成 RSS 并向订阅会话推送新增通知。
-version: v1.2.4
+version: v1.2.6
 author: aliveriver
 repo: https://github.com/aliveriver/DLUT-rss
+
+
+
 
 
 

@@ -10,9 +10,6 @@ from astrbot.api.star import Context, Star, register
 
 
 def _load_local_module(module_name: str):
-    if module_name in sys.modules:
-        return sys.modules[module_name]
-
     module_path = Path(__file__).resolve().with_name(f"{module_name}.py")
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
@@ -40,7 +37,7 @@ from sources import SourceConfig, format_source_lines, resolve_source
 from subscription_store import SubscriptionStore
 
 
-@register("astrbot_plugin_dlut_rss", "aliveriver", "抓取 DLUT 多站点通知并推送到订阅会话", "1.2.4")
+@register("astrbot_plugin_dlut_rss", "aliveriver", "抓取 DLUT 多站点通知并推送到订阅会话", "1.2.6")
 class DLUTRSSPlugin(Star):
     def __init__(self, context: Context, config: dict[str, Any] | None = None):
         super().__init__(context)
@@ -187,10 +184,13 @@ class DLUTRSSPlugin(Star):
         """按来源查看最新通知，默认显示 5 条。"""
         source, error = self._resolve_source_from_event(event, "latest_source")
         if source is None:
+            logger.info(f"[DLUT RSS] latest_source 未解析到来源: {error}")
             yield event.plain_result(error)
             return
 
+        logger.info(f"[DLUT RSS] latest_source 开始抓取 source_key={source['key']} source_name={source['name']}")
         notices = await self._rss_service.fetch_notices(source_keys={source["key"]})
+        logger.info(f"[DLUT RSS] latest_source 抓取完成 source_key={source['key']} count={len(notices)}")
         if not notices:
             yield event.plain_result(f"来源 {source['name']} 暂未抓取到通知，请稍后再试。")
             return
@@ -321,6 +321,10 @@ class DLUTRSSPlugin(Star):
                 "- 首次运行只建立基线，不会推送历史通知",
             ]
         )
+
+
+
+
 
 
 
