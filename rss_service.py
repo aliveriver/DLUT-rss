@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
@@ -10,6 +10,8 @@ from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup, Tag
+
+from astrbot.api import logger
 
 from sources import SOURCES, SourceConfig
 
@@ -63,6 +65,7 @@ class DLUTRSSService:
         notices: list[Notice] = []
         for source, result in zip(selected_sources, results):
             if isinstance(result, Exception):
+                logger.warning(f"[DLUT RSS] 抓取来源失败 {source['key']} {source['url']}: {result}")
                 continue
             notices.extend(result)
 
@@ -228,3 +231,4 @@ class DLUTRSSService:
     def _cfg_str(self, key: str, default: str) -> str:
         value = self.config.get(key, default)
         return str(value) if value is not None else default
+
