@@ -1,4 +1,4 @@
-import re
+﻿import re
 from collections.abc import Callable
 from typing import TypedDict
 
@@ -32,7 +32,7 @@ SOURCES: list[SourceConfig] = [
     {
         "key": "teach_byxx",
         "name": "教务处部院信息",
-        "url": "https://teach.dlut.edu.cn/byxx/byxx.htm",
+        "url": "https://teach.dlut.edu.cn/list.jsp?urltype=tree.TreeTempUrl&wbtreeid=1206",
         "selector": ".list ul li a",
         "parser": parse_title_attr,
         "category": "teaching",
@@ -149,3 +149,4 @@ def format_source_lines(subscribed_keys: set[str] | None = None) -> list[str]:
 
 def _normalize_query(text: str) -> str:
     return re.sub(r"[\s_\-]+", "", text).casefold()
+
