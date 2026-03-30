@@ -122,6 +122,8 @@ class DLUTRSSService:
 
         soup = BeautifulSoup(response.text, "html.parser")
         tags = soup.select(source["selector"])
+        if not tags:
+            logger.warning(f"[DLUT RSS] 选择器未命中 {source['key']} {source['url']} selector={source['selector']}")
         notices: list[Notice] = []
 
         for tag in tags:
@@ -231,4 +233,5 @@ class DLUTRSSService:
     def _cfg_str(self, key: str, default: str) -> str:
         value = self.config.get(key, default)
         return str(value) if value is not None else default
+
 

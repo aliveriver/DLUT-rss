@@ -18,6 +18,7 @@ def _load_local_module(module_name: str):
     if spec is None or spec.loader is None:
         raise ModuleNotFoundError(f"Cannot load local plugin module: {module_name}")
 
+    sys.modules.pop(module_name, None)
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
@@ -39,7 +40,7 @@ from sources import SourceConfig, format_source_lines, resolve_source
 from subscription_store import SubscriptionStore
 
 
-@register("astrbot_plugin_dlut_rss", "aliveriver", "抓取 DLUT 多站点通知并推送到订阅会话", "1.2.2")
+@register("astrbot_plugin_dlut_rss", "aliveriver", "抓取 DLUT 多站点通知并推送到订阅会话", "1.2.3")
 class DLUTRSSPlugin(Star):
     def __init__(self, context: Context, config: dict[str, Any] | None = None):
         super().__init__(context)
@@ -320,5 +321,8 @@ class DLUTRSSPlugin(Star):
                 "- 首次运行只建立基线，不会推送历史通知",
             ]
         )
+
+
+
 
 
