@@ -27,6 +27,9 @@ DEFAULT_HEADERS = {
 DATE_PATTERN = re.compile(
     r"(?P<year>\d{4})\s*(?:年|[-/.])\s*(?P<month>\d{1,2})\s*(?:月|[-/.])\s*(?P<day>\d{1,2})\s*日?"
 )
+COMPACT_DATE_PATTERN = re.compile(
+    r"(?P<year>\d{4})\s*[-/.年]\s*(?P<month>\d{2})\s*(?P<day>\d{2})\s*日?"
+)
 
 
 class Notice(TypedDict):
@@ -174,6 +177,7 @@ class DLUTRSSService:
 
     def _extract_published_at(self, tag: Tag) -> datetime:
         candidates = [
+            *self._iter_date_element_texts(tag),
             tag.get_text(" ", strip=True),
             *self._iter_ancestor_texts(tag, depth=3),
             self._collect_sibling_text(tag),
@@ -185,6 +189,15 @@ class DLUTRSSService:
                 return extracted
 
         return datetime.now(CHINA_TZ)
+
+    def _iter_date_element_texts(self, tag: Tag) -> Iterable[str]:
+        for date_element in tag.select(
+            ".date, .time, [class*='date'], [class*='time']"
+        ):
+            if isinstance(date_element, Tag):
+                text = date_element.get_text(" ", strip=True)
+                if text:
+                    yield text
 
     def _iter_ancestor_texts(self, tag: Tag, depth: int) -> Iterable[str]:
         current = tag.parent
@@ -217,7 +230,7 @@ class DLUTRSSService:
         if not text:
             return None
 
-        match = DATE_PATTERN.search(text)
+        match = DATE_PATTERN.search(text) or COMPACT_DATE_PATTERN.search(text)
         if not match:
             return None
 
