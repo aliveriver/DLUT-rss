@@ -97,8 +97,10 @@ class DLUTRSSPlugin(Star):
         umo = event.unified_msg_origin
         sessions = await self._subscription_store.get_global_sessions()
         if umo not in sessions:
+            baseline_ids = await self._fetch_subscription_baseline_ids()
             sessions.append(umo)
             await self._subscription_store.save_global_sessions(sessions)
+            await self._set_global_subscription_baseline(umo, baseline_ids)
         yield event.plain_result("已订阅全部 DLUT 来源通知推送。")
 
     @dlut_group.command("unsubscribe")
@@ -109,6 +111,7 @@ class DLUTRSSPlugin(Star):
         if umo in sessions:
             sessions.remove(umo)
             await self._subscription_store.save_global_sessions(sessions)
+            await self._remove_global_subscription_baseline(umo)
             yield event.plain_result("已取消全部 DLUT 来源通知推送。")
             return
         yield event.plain_result("当前会话尚未开启全局订阅。")
@@ -125,9 +128,13 @@ class DLUTRSSPlugin(Star):
         umo = event.unified_msg_origin
         subscribed_keys = subscriptions.setdefault(umo, [])
         if source["key"] not in subscribed_keys:
+            baseline_ids = await self._fetch_subscription_baseline_ids(
+                source_keys={source["key"]}
+            )
             subscribed_keys.append(source["key"])
             subscribed_keys.sort()
             await self._subscription_store.save_source_subscriptions(subscriptions)
+            await self._set_source_subscription_baseline(umo, source["key"], baseline_ids)
         yield event.plain_result(f"已订阅来源: {source['name']} ({source['key']})")
 
     @dlut_group.command("unsubscribe_source")
@@ -151,6 +158,7 @@ class DLUTRSSPlugin(Star):
         else:
             subscriptions.pop(umo, None)
         await self._subscription_store.save_source_subscriptions(subscriptions)
+        await self._remove_source_subscription_baseline(umo, source["key"])
         yield event.plain_result(f"已取消订阅来源: {source['name']} ({source['key']})")
 
     @dlut_group.command("check")
@@ -230,7 +238,7 @@ class DLUTRSSPlugin(Star):
 
         new_items.reverse()
         if push:
-            await self._push_new_items(new_items)
+            await self._push_new_items(new_items, notices)
 
         merged = current_ids + [item_id for item_id in seen_ids if item_id not in current_ids]
         await self.put_kv_data("seen_notice_ids", merged[:1000])
@@ -241,16 +249,57 @@ class DLUTRSSPlugin(Star):
         if notices:
             await self._rss_service.write_rss(notices)
 
-    async def _push_new_items(self, items: list[Notice]):
+    async def _push_new_items(self, items: list[Notice], current_notices: list[Notice]):
         global_sessions = set(await self._subscription_store.get_global_sessions())
         source_subscriptions = await self._subscription_store.get_source_subscriptions()
+        baselines = await self._get_subscription_baselines()
+        current_ids = [item["id"] for item in current_notices]
+        current_ids_by_source: dict[str, list[str]] = {}
+        for item in current_notices:
+            current_ids_by_source.setdefault(item["source_key"], []).append(item["id"])
+
+        baselines_changed = False
+        for session in global_sessions:
+            session_baselines = baselines.setdefault(session, {})
+            if "global" not in session_baselines or session_baselines["global"] is None:
+                session_baselines["global"] = current_ids
+                baselines_changed = True
+
+        for session, source_keys in source_subscriptions.items():
+            session_baselines = baselines.setdefault(session, {})
+            source_baselines = session_baselines.setdefault("sources", {})
+            for source_key in source_keys:
+                if source_key not in source_baselines or source_baselines[source_key] is None:
+                    source_baselines[source_key] = current_ids_by_source.get(source_key, [])
+                    baselines_changed = True
+
+        if baselines_changed:
+            await self._save_subscription_baselines(baselines)
+
+        global_baseline_sets = {
+            session: set(baselines.get(session, {}).get("global") or [])
+            for session in global_sessions
+        }
+        source_baseline_sets = {
+            (session, source_key): set(
+                baselines.get(session, {}).get("sources", {}).get(source_key) or []
+            )
+            for session, source_keys in source_subscriptions.items()
+            for source_key in source_keys
+        }
 
         for item in items:
-            recipients = set(global_sessions)
+            recipients = {
+                session
+                for session in global_sessions
+                if item["id"] not in global_baseline_sets.get(session, set())
+            }
             recipients.update(
                 session
                 for session, source_keys in source_subscriptions.items()
                 if item["source_key"] in source_keys
+                and item["id"]
+                not in source_baseline_sets.get((session, item["source_key"]), set())
             )
             if not recipients:
                 continue
@@ -266,6 +315,98 @@ class DLUTRSSPlugin(Star):
                     await self.context.send_message(umo, chain)
                 except Exception as exc:
                     logger.warning(f"[DLUT RSS] 向会话推送失败 {umo}: {exc}")
+
+    async def _get_subscription_baselines(self) -> dict[str, dict[str, Any]]:
+        raw_data = await self.get_kv_data("subscription_baselines", {})
+        if not isinstance(raw_data, dict):
+            return {}
+
+        baselines: dict[str, dict[str, Any]] = {}
+        for session, raw_session in raw_data.items():
+            if not isinstance(raw_session, dict):
+                continue
+
+            cleaned: dict[str, Any] = {}
+            if "global" in raw_session:
+                cleaned["global"] = self._clean_baseline_ids(raw_session.get("global"))
+
+            raw_sources = raw_session.get("sources", {})
+            if isinstance(raw_sources, dict):
+                cleaned["sources"] = {
+                    str(source_key): self._clean_baseline_ids(source_ids)
+                    for source_key, source_ids in raw_sources.items()
+                }
+
+            baselines[str(session)] = cleaned
+        return baselines
+
+    async def _save_subscription_baselines(self, baselines: dict[str, dict[str, Any]]):
+        await self.put_kv_data("subscription_baselines", baselines)
+
+    async def _fetch_subscription_baseline_ids(
+        self, source_keys: set[str] | None = None
+    ) -> list[str] | None:
+        try:
+            notices = await self._rss_service.fetch_notices(source_keys=source_keys)
+        except Exception as exc:
+            logger.warning(f"[DLUT RSS] 建立订阅基线失败，将在下次检查时重试: {exc}")
+            return None
+        return [item["id"] for item in notices] or None
+
+    async def _set_global_subscription_baseline(
+        self, session: str, notice_ids: list[str] | None
+    ):
+        baselines = await self._get_subscription_baselines()
+        baselines.setdefault(session, {})["global"] = notice_ids
+        await self._save_subscription_baselines(baselines)
+
+    async def _set_source_subscription_baseline(
+        self, session: str, source_key: str, notice_ids: list[str] | None
+    ):
+        baselines = await self._get_subscription_baselines()
+        session_baselines = baselines.setdefault(session, {})
+        session_baselines.setdefault("sources", {})[source_key] = notice_ids
+        await self._save_subscription_baselines(baselines)
+
+    async def _remove_global_subscription_baseline(self, session: str):
+        baselines = await self._get_subscription_baselines()
+        session_baselines = baselines.get(session)
+        if session_baselines is None:
+            return
+        session_baselines.pop("global", None)
+        self._drop_empty_subscription_baseline(baselines, session)
+        await self._save_subscription_baselines(baselines)
+
+    async def _remove_source_subscription_baseline(self, session: str, source_key: str):
+        baselines = await self._get_subscription_baselines()
+        session_baselines = baselines.get(session)
+        if session_baselines is None:
+            return
+        source_baselines = session_baselines.get("sources", {})
+        if isinstance(source_baselines, dict):
+            source_baselines.pop(source_key, None)
+        self._drop_empty_subscription_baseline(baselines, session)
+        await self._save_subscription_baselines(baselines)
+
+    def _drop_empty_subscription_baseline(
+        self, baselines: dict[str, dict[str, Any]], session: str
+    ):
+        session_baselines = baselines.get(session)
+        if not session_baselines:
+            baselines.pop(session, None)
+            return
+        source_baselines = session_baselines.get("sources")
+        if isinstance(source_baselines, dict) and not source_baselines:
+            session_baselines.pop("sources", None)
+        if not session_baselines:
+            baselines.pop(session, None)
+
+    def _clean_baseline_ids(self, value: object) -> list[str] | None:
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            return None
+        return list(dict.fromkeys(str(notice_id) for notice_id in value))[:1000]
 
     def _resolve_source_from_event(
         self, event: AstrMessageEvent, command_name: str
