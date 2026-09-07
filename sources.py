@@ -4,7 +4,7 @@ from typing import TypedDict
 
 from bs4 import Tag
 
-from parsers import parse_h2_child, parse_text_content, parse_title_attr
+from parsers import parse_h2_child, parse_notice_title, parse_text_content, parse_title_attr
 
 Parser = Callable[[Tag], str]
 
@@ -37,6 +37,15 @@ SOURCES: list[SourceConfig] = [
         "parser": parse_text_content,
         "category": "campus",
         "base_url": "https://jxyxbzzx.dlut.edu.cn/",
+    },
+    {
+        "key": "campus_kfqxqzhb",
+        "name": "开发区校区综合办公室",
+        "url": "https://kfqxqzhb.dlut.edu.cn/tzgg.htm",
+        "selector": ".notice-list a[href*='info/']",
+        "parser": parse_notice_title,
+        "category": "campus",
+        "base_url": "https://kfqxqzhb.dlut.edu.cn/",
     },
     {
         "key": "teach_byxx",
